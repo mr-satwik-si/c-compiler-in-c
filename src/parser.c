@@ -1,3 +1,4 @@
+
 #include "parser.h"
 
 #include <stdio.h>
@@ -44,6 +45,139 @@ static int expect(TokenType type, const char *text) {
     return 1;
 }
 
+static ASTNode *parse_expression(void);
+
+static ASTNode *parse_primary(void) {
+    const Token *token = current_token();
+
+    if (token == NULL) {
+        fprintf(stderr, "Parser error: expected an expression\n");
+        return NULL;
+    }
+
+    if (token->type == TOKEN_NUMBER) {
+        char *end = NULL;
+        long value = strtol(token->text, &end, 10);
+
+        if (end == token->text || *end != '\0') {
+            fprintf(stderr, "Parser error: invalid integer literal\n");
+            return NULL;
+        }
+
+        position++;
+
+        ASTNode *node = ast_create_number(value);
+
+        if (node == NULL) {
+            fprintf(stderr, "Parser error: out of memory\n");
+        }
+
+        return node;
+    }
+
+    if (token->type == TOKEN_IDENTIFIER) {
+        ASTNode *node = ast_create_identifier(token->text);
+
+        if (node == NULL) {
+            fprintf(stderr, "Parser error: out of memory\n");
+            return NULL;
+        }
+
+        position++;
+        return node;
+    }
+
+
+    if (token_is(TOKEN_SYMBOL, "(")) {
+        position++;
+
+        ASTNode *expression = parse_expression();
+
+        if (expression == NULL) {
+            return NULL;
+        }
+
+        if (!expect(TOKEN_SYMBOL, ")")) {
+            ast_free(expression);
+            return NULL;
+        }
+
+        return expression;
+    }
+
+    fprintf(stderr,
+            "Parser error: expected a number, identifier, or parenthesized expression\n");
+    return NULL;
+}
+
+static ASTNode *parse_multiplicative(void) {
+    ASTNode *left = parse_primary();
+
+    if (left == NULL) {
+        return NULL;
+    }
+
+    while (token_is(TOKEN_SYMBOL, "*") ||
+           token_is(TOKEN_SYMBOL, "/")) {
+        char operator = current_token()->text[0];
+        position++;
+
+        ASTNode *right = parse_primary();
+
+        if (right == NULL) {
+            ast_free(left);
+            return NULL;
+        }
+
+        ASTNode *binary = ast_create_binary(operator, left, right);
+
+        if (binary == NULL) {
+            ast_free(left);
+            ast_free(right);
+            fprintf(stderr, "Parser error: out of memory\n");
+            return NULL;
+        }
+
+        left = binary;
+    }
+
+    return left;
+}
+
+static ASTNode *parse_expression(void) {
+    ASTNode *left = parse_multiplicative();
+
+    if (left == NULL) {
+        return NULL;
+    }
+
+    while (token_is(TOKEN_SYMBOL, "+") ||
+           token_is(TOKEN_SYMBOL, "-")) {
+        char operator = current_token()->text[0];
+        position++;
+
+        ASTNode *right = parse_multiplicative();
+
+        if (right == NULL) {
+            ast_free(left);
+            return NULL;
+        }
+
+        ASTNode *binary = ast_create_binary(operator, left, right);
+
+        if (binary == NULL) {
+            ast_free(left);
+            ast_free(right);
+            fprintf(stderr, "Parser error: out of memory\n");
+            return NULL;
+        }
+
+        left = binary;
+    }
+
+    return left;
+}
+
 static ASTNode *parse_function(void) {
     if (!expect(TOKEN_KEYWORD, "int")) {
         return NULL;
@@ -74,41 +208,26 @@ static ASTNode *parse_function(void) {
         return NULL;
     }
 
-    const Token *number_token = current_token();
+    ASTNode *value = parse_expression();
 
-    if (!expect(TOKEN_NUMBER, NULL)) {
-        fprintf(stderr, "Parser error: expected an integer after return\n");
-        free(name);
-        return NULL;
-    }
-
-    char *end = NULL;
-    long number = strtol(number_token->text, &end, 10);
-
-    if (end == number_token->text || *end != '\0') {
-        fprintf(stderr, "Parser error: invalid integer literal\n");
+    if (value == NULL) {
         free(name);
         return NULL;
     }
 
     if (!expect(TOKEN_SYMBOL, ";") ||
         !expect(TOKEN_SYMBOL, "}")) {
+        ast_free(value);
         free(name);
         return NULL;
     }
 
-    ASTNode *number_node = ast_create_number(number);
-
-    if (number_node == NULL) {
-        free(name);
-        return NULL;
-    }
-
-    ASTNode *return_node = ast_create_return(number_node);
+    ASTNode *return_node = ast_create_return(value);
 
     if (return_node == NULL) {
-        ast_free(number_node);
+        ast_free(value);
         free(name);
+        fprintf(stderr, "Parser error: out of memory\n");
         return NULL;
     }
 
@@ -117,6 +236,7 @@ static ASTNode *parse_function(void) {
 
     if (function_node == NULL) {
         ast_free(return_node);
+        fprintf(stderr, "Parser error: out of memory\n");
         return NULL;
     }
 

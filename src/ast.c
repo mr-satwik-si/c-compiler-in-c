@@ -1,3 +1,4 @@
+
 #include "ast.h"
 
 #include <stdlib.h>
@@ -26,7 +27,56 @@ ASTNode *ast_create_number(long value) {
     return node;
 }
 
+ASTNode *ast_create_identifier(const char *name) {
+    if (name == NULL) {
+        return NULL;
+    }
+
+    ASTNode *node = ast_create_node(AST_IDENTIFIER);
+
+    if (node == NULL) {
+        return NULL;
+    }
+
+    size_t length = strlen(name) + 1;
+    node->as.identifier = malloc(length);
+
+    if (node->as.identifier == NULL) {
+        free(node);
+        return NULL;
+    }
+
+    memcpy(node->as.identifier, name, length);
+    return node;
+}
+
+ASTNode *ast_create_binary(
+    char operator,
+    ASTNode *left,
+    ASTNode *right
+) {
+    if (left == NULL || right == NULL) {
+        return NULL;
+    }
+
+    ASTNode *node = ast_create_node(AST_BINARY);
+
+    if (node == NULL) {
+        return NULL;
+    }
+
+    node->as.binary.operator = operator;
+    node->as.binary.left = left;
+    node->as.binary.right = right;
+
+    return node;
+}
+
 ASTNode *ast_create_return(ASTNode *value) {
+    if (value == NULL) {
+        return NULL;
+    }
+
     ASTNode *node = ast_create_node(AST_RETURN);
 
     if (node == NULL) {
@@ -38,7 +88,7 @@ ASTNode *ast_create_return(ASTNode *value) {
 }
 
 ASTNode *ast_create_function(const char *name, ASTNode *body) {
-    if (name == NULL) {
+    if (name == NULL || body == NULL) {
         return NULL;
     }
 
@@ -77,6 +127,15 @@ void ast_free(ASTNode *node) {
                 break;
 
             case AST_NUMBER:
+                break;
+
+            case AST_IDENTIFIER:
+                free(node->as.identifier);
+                break;
+
+            case AST_BINARY:
+                ast_free(node->as.binary.left);
+                ast_free(node->as.binary.right);
                 break;
         }
 

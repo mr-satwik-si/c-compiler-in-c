@@ -77,7 +77,47 @@ int main(void) {
         return 1;
     }
 
+   
     puts("PASS: invalid character rejected");
+
+    count = 0;
+    tokens = lexer_tokenize("x + y - 3 * 4 / 2", &count);
+
+    if (tokens == NULL) {
+        fprintf(stderr, "FAIL: arithmetic operators were rejected\n");
+        return 1;
+    }
+
+    const char *operators[] = {"+", "-", "*", "/"};
+    size_t operator_index = 0;
+
+    for (size_t i = 0; i < count; i++) {
+        if (tokens[i].type == TOKEN_SYMBOL &&
+            (strcmp(tokens[i].text, "+") == 0 ||
+             strcmp(tokens[i].text, "-") == 0 ||
+             strcmp(tokens[i].text, "*") == 0 ||
+             strcmp(tokens[i].text, "/") == 0)) {
+
+            if (operator_index >= 4 ||
+                strcmp(tokens[i].text, operators[operator_index]) != 0) {
+                fprintf(stderr, "FAIL: arithmetic operator is incorrect\n");
+                lexer_free_tokens(tokens, count);
+                return 1;
+            }
+
+            operator_index++;
+        }
+    }
+
+    lexer_free_tokens(tokens, count);
+
+    if (operator_index != 4) {
+        fprintf(stderr, "FAIL: not all arithmetic operators were recognized\n");
+        return 1;
+    }
+
+    puts("PASS: arithmetic operators recognized");
     puts("All lexer tests passed.");
     return 0;
 }
+

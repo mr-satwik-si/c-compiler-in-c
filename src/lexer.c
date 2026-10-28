@@ -31,7 +31,7 @@ static int is_identifier_part(unsigned char c) {
 }
 
 static int is_symbol(char c) {
-    return strchr("(){};,", c) != NULL;
+    return strchr("(){};,+-*/", c) != NULL;
 }
 
 void lexer_free_tokens(Token *tokens, size_t count) {
