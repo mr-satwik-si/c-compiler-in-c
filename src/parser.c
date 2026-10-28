@@ -1,20 +1,20 @@
-
-#include "parser.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "parser.h"
+
 static const Token *tokens;
 static size_t token_count;
 static size_t position;
+static int parser_failed;
 
 static const Token *current_token(void) {
-    if (position < token_count) {
-        return &tokens[position];
+    if (position >= token_count) {
+        return NULL;
     }
 
-    return NULL;
+    return &tokens[position];
 }
 
 static int token_is(TokenType type, const char *text) {
@@ -24,20 +24,24 @@ static int token_is(TokenType type, const char *text) {
         return 0;
     }
 
-    return text == NULL || strcmp(token->text, text) == 0;
+    if (text == NULL) {
+        return 1;
+    }
+
+    return strcmp(token->text, text) == 0;
+}
+
+static void parser_error(const char *message) {
+    if (!parser_failed) {
+        fprintf(stderr, "Parser error: %s\n", message);
+    }
+
+    parser_failed = 1;
 }
 
 static int expect(TokenType type, const char *text) {
-    const Token *token = current_token();
-
     if (!token_is(type, text)) {
-        if (token != NULL) {
-            fprintf(stderr, "Parser error: unexpected token '%s'\n",
-                    token->text);
-        } else {
-            fprintf(stderr, "Parser error: unexpected end of input\n");
-        }
-
+        parser_error("unexpected token");
         return 0;
     }
 
@@ -51,7 +55,7 @@ static ASTNode *parse_primary(void) {
     const Token *token = current_token();
 
     if (token == NULL) {
-        fprintf(stderr, "Parser error: expected an expression\n");
+        parser_error("unexpected end of input");
         return NULL;
     }
 
@@ -60,26 +64,19 @@ static ASTNode *parse_primary(void) {
         long value = strtol(token->text, &end, 10);
 
         if (end == token->text || *end != '\0') {
-            fprintf(stderr, "Parser error: invalid integer literal\n");
+            parser_error("invalid number");
             return NULL;
         }
 
         position++;
-
-        ASTNode *node = ast_create_number(value);
-
-        if (node == NULL) {
-            fprintf(stderr, "Parser error: out of memory\n");
-        }
-
-        return node;
+        return ast_create_number(value);
     }
 
     if (token->type == TOKEN_IDENTIFIER) {
         ASTNode *node = ast_create_identifier(token->text);
 
         if (node == NULL) {
-            fprintf(stderr, "Parser error: out of memory\n");
+            parser_error("failed to create identifier node");
             return NULL;
         }
 
@@ -87,26 +84,27 @@ static ASTNode *parse_primary(void) {
         return node;
     }
 
-
     if (token_is(TOKEN_SYMBOL, "(")) {
         position++;
 
-        ASTNode *expression = parse_expression();
+        ASTNode *node = parse_expression();
 
-        if (expression == NULL) {
+        if (node == NULL) {
             return NULL;
         }
 
         if (!expect(TOKEN_SYMBOL, ")")) {
-            ast_free(expression);
+            ast_free(node);
             return NULL;
         }
 
-        return expression;
+        return node;
     }
 
-    fprintf(stderr,
-            "Parser error: expected a number, identifier, or parenthesized expression\n");
+    parser_error(
+        "expected a number, identifier, or parenthesized expression"
+    );
+
     return NULL;
 }
 
@@ -129,16 +127,17 @@ static ASTNode *parse_multiplicative(void) {
             return NULL;
         }
 
-        ASTNode *binary = ast_create_binary(operator, left, right);
+        ASTNode *combined =
+            ast_create_binary(operator, left, right);
 
-        if (binary == NULL) {
+        if (combined == NULL) {
             ast_free(left);
             ast_free(right);
-            fprintf(stderr, "Parser error: out of memory\n");
+            parser_error("failed to create binary expression");
             return NULL;
         }
 
-        left = binary;
+        left = combined;
     }
 
     return left;
@@ -163,19 +162,78 @@ static ASTNode *parse_expression(void) {
             return NULL;
         }
 
-        ASTNode *binary = ast_create_binary(operator, left, right);
+        ASTNode *combined =
+            ast_create_binary(operator, left, right);
 
-        if (binary == NULL) {
+        if (combined == NULL) {
             ast_free(left);
             ast_free(right);
-            fprintf(stderr, "Parser error: out of memory\n");
+            parser_error("failed to create binary expression");
             return NULL;
         }
 
-        left = binary;
+        left = combined;
     }
 
     return left;
+}
+
+static ASTNode *parse_variable_declaration(void) {
+    if (!expect(TOKEN_KEYWORD, "int")) {
+        return NULL;
+    }
+
+    const Token *name_token = current_token();
+
+    if (name_token == NULL ||
+        name_token->type != TOKEN_IDENTIFIER) {
+        parser_error("expected variable name");
+        return NULL;
+    }
+
+    ASTNode *declaration =
+        ast_create_variable_declaration(name_token->text);
+
+    if (declaration == NULL) {
+        parser_error("failed to create variable declaration");
+        return NULL;
+    }
+
+    position++;
+
+    if (!expect(TOKEN_SYMBOL, ";")) {
+        ast_free(declaration);
+        return NULL;
+    }
+
+    return declaration;
+}
+
+static ASTNode *parse_return_statement(void) {
+    if (!expect(TOKEN_KEYWORD, "return")) {
+        return NULL;
+    }
+
+    ASTNode *value = parse_expression();
+
+    if (value == NULL) {
+        return NULL;
+    }
+
+    if (!expect(TOKEN_SYMBOL, ";")) {
+        ast_free(value);
+        return NULL;
+    }
+
+    ASTNode *node = ast_create_return(value);
+
+    if (node == NULL) {
+        ast_free(value);
+        parser_error("failed to create return node");
+        return NULL;
+    }
+
+    return node;
 }
 
 static ASTNode *parse_function(void) {
@@ -185,85 +243,109 @@ static ASTNode *parse_function(void) {
 
     const Token *name_token = current_token();
 
-    if (!expect(TOKEN_IDENTIFIER, NULL)) {
-        fprintf(stderr, "Parser error: expected a function name\n");
+    if (name_token == NULL ||
+        name_token->type != TOKEN_IDENTIFIER) {
+        parser_error("expected function name");
         return NULL;
     }
 
-    char *name = malloc(strlen(name_token->text) + 1);
+    char *function_name = malloc(strlen(name_token->text) + 1);
 
-    if (name == NULL) {
-        fprintf(stderr, "Parser error: out of memory\n");
+    if (function_name == NULL) {
+        parser_error("out of memory");
         return NULL;
     }
 
-    strcpy(name, name_token->text);
+    strcpy(function_name, name_token->text);
+    position++;
 
     if (!expect(TOKEN_SYMBOL, "(") ||
         !expect(TOKEN_KEYWORD, "void") ||
         !expect(TOKEN_SYMBOL, ")") ||
-        !expect(TOKEN_SYMBOL, "{") ||
-        !expect(TOKEN_KEYWORD, "return")) {
-        free(name);
+        !expect(TOKEN_SYMBOL, "{")) {
+        free(function_name);
         return NULL;
     }
 
-    ASTNode *value = parse_expression();
+    ASTNode *body = NULL;
+    ASTNode *tail = NULL;
 
-    if (value == NULL) {
-        free(name);
-        return NULL;
+    while (token_is(TOKEN_KEYWORD, "int")) {
+        ASTNode *declaration = parse_variable_declaration();
+
+        if (declaration == NULL) {
+            ast_free(body);
+            free(function_name);
+            return NULL;
+        }
+
+        if (body == NULL) {
+            body = declaration;
+        } else {
+            tail->next = declaration;
+        }
+
+        tail = declaration;
     }
 
-    if (!expect(TOKEN_SYMBOL, ";") ||
-        !expect(TOKEN_SYMBOL, "}")) {
-        ast_free(value);
-        free(name);
-        return NULL;
-    }
-
-    ASTNode *return_node = ast_create_return(value);
+    ASTNode *return_node = parse_return_statement();
 
     if (return_node == NULL) {
-        ast_free(value);
-        free(name);
-        fprintf(stderr, "Parser error: out of memory\n");
+        ast_free(body);
+        free(function_name);
         return NULL;
     }
 
-    ASTNode *function_node = ast_create_function(name, return_node);
-    free(name);
+    if (body == NULL) {
+        body = return_node;
+    } else {
+        tail->next = return_node;
+    }
 
-    if (function_node == NULL) {
-        ast_free(return_node);
-        fprintf(stderr, "Parser error: out of memory\n");
+    if (!expect(TOKEN_SYMBOL, "}")) {
+        ast_free(body);
+        free(function_name);
         return NULL;
     }
 
-    return function_node;
+    if (position < token_count &&
+    !token_is(TOKEN_EOF, NULL)) {
+    parser_error("unexpected tokens after function");
+    ast_free(body);
+    free(function_name);
+    return NULL;
+}
+
+    ASTNode *function =
+        ast_create_function(function_name, body);
+
+    free(function_name);
+
+    if (function == NULL) {
+        ast_free(body);
+        parser_error("failed to create function node");
+        return NULL;
+    }
+
+    return function;
 }
 
 ASTNode *parser_parse(const Token *input_tokens, size_t count) {
     if (input_tokens == NULL || count == 0) {
-        fprintf(stderr, "Parser error: no tokens supplied\n");
         return NULL;
     }
 
     tokens = input_tokens;
     token_count = count;
     position = 0;
+    parser_failed = 0;
 
-    ASTNode *function = parse_function();
+    ASTNode *root = parse_function();
 
-    if (function == NULL) {
+    if (parser_failed) {
+        ast_free(root);
         return NULL;
     }
 
-    if (!expect(TOKEN_EOF, NULL)) {
-        fprintf(stderr, "Parser error: unexpected content after function\n");
-        ast_free(function);
-        return NULL;
-    }
-
-    return function;
+    return root;
 }

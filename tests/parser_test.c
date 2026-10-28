@@ -142,6 +142,75 @@ static int test_parenthesized_expression(void) {
     return 1;
 }
 
+static int test_variable_declaration(void) {
+    ASTNode *ast = parse_source(
+        "int main(void) { int x; return 10; }"
+    );
+
+    if (ast == NULL) {
+        puts("FAIL: variable declaration was rejected");
+        return 0;
+    }
+
+    ASTNode *declaration = ast->as.function.body;
+    ASTNode *return_node =
+        declaration != NULL ? declaration->next : NULL;
+
+    int valid =
+        declaration != NULL &&
+        declaration->type == AST_VARIABLE_DECLARATION &&
+        strcmp(declaration->as.variable_declaration.name, "x") == 0 &&
+        return_node != NULL &&
+        return_node->type == AST_RETURN &&
+        return_node->next == NULL;
+
+    ast_free(ast);
+
+    if (!valid) {
+        puts("FAIL: variable declaration AST is incorrect");
+        return 0;
+    }
+
+    puts("PASS: variable declaration before return");
+    return 1;
+}
+
+static int test_multiple_declarations(void) {
+    ASTNode *ast = parse_source(
+        "int main(void) { int x; int y; return x + y; }"
+    );
+
+    if (ast == NULL) {
+        puts("FAIL: multiple declarations were rejected");
+        return 0;
+    }
+
+    ASTNode *first = ast->as.function.body;
+    ASTNode *second = first != NULL ? first->next : NULL;
+    ASTNode *return_node = second != NULL ? second->next : NULL;
+
+    int valid =
+        first != NULL &&
+        first->type == AST_VARIABLE_DECLARATION &&
+        strcmp(first->as.variable_declaration.name, "x") == 0 &&
+        second != NULL &&
+        second->type == AST_VARIABLE_DECLARATION &&
+        strcmp(second->as.variable_declaration.name, "y") == 0 &&
+        return_node != NULL &&
+        return_node->type == AST_RETURN &&
+        return_node->next == NULL;
+
+    ast_free(ast);
+
+    if (!valid) {
+        puts("FAIL: multiple declaration AST is incorrect");
+        return 0;
+    }
+
+    puts("PASS: multiple variable declarations");
+    return 1;
+}
+
 static int test_invalid_program(const char *source) {
     ASTNode *ast = parse_source(source);
 
@@ -162,6 +231,8 @@ int main(void) {
     passed &= test_arithmetic_precedence();
     passed &= test_identifier_expression();
     passed &= test_parenthesized_expression();
+    passed &= test_variable_declaration();
+    passed &= test_multiple_declarations();
 
     passed &= test_invalid_program(
         "int main(void) { return 42 }"
@@ -173,6 +244,10 @@ int main(void) {
 
     passed &= test_invalid_program(
         "int main(void) { return (2 + 3 * 4; }"
+    );
+
+    passed &= test_invalid_program(
+        "int main(void) { int x return x; }"
     );
 
     if (!passed) {

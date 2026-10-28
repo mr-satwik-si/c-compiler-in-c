@@ -1,121 +1,100 @@
-
 #include "ast.h"
 
 #include <stdio.h>
 #include <string.h>
 
-static int test_existing_ast(void) {
+static int test_basic_nodes(void) {
     ASTNode *number = ast_create_number(42);
+    ASTNode *return_node = ast_create_return(number);
+    ASTNode *function = ast_create_function("main", return_node);
 
-    if (number == NULL) {
-        puts("FAIL: could not create number node");
+    if (function == NULL ||
+        function->type != AST_FUNCTION ||
+        strcmp(function->as.function.name, "main") != 0 ||
+        function->as.function.body != return_node ||
+        return_node->type != AST_RETURN ||
+        return_node->as.return_stmt.value != number ||
+        number->type != AST_NUMBER ||
+        number->as.number != 42) {
+        ast_free(function);
+        puts("FAIL: function, return, and number nodes");
         return 0;
     }
-
-    ASTNode *return_stmt = ast_create_return(number);
-
-    if (return_stmt == NULL) {
-        ast_free(number);
-        puts("FAIL: could not create return node");
-        return 0;
-    }
-
-    ASTNode *function = ast_create_function("main", return_stmt);
-
-    if (function == NULL) {
-        ast_free(return_stmt);
-        puts("FAIL: could not create function node");
-        return 0;
-    }
-
-    int valid =
-        function->type == AST_FUNCTION &&
-        strcmp(function->as.function.name, "main") == 0 &&
-        function->as.function.body->type == AST_RETURN &&
-        function->as.function.body->as.return_stmt.value->type == AST_NUMBER &&
-        function->as.function.body->as.return_stmt.value->as.number == 42;
 
     ast_free(function);
-
-    if (!valid) {
-        puts("FAIL: existing AST structure is incorrect");
-        return 0;
-    }
-
     puts("PASS: function, return, and number nodes");
     return 1;
 }
 
 static int test_identifier_node(void) {
-    ASTNode *identifier = ast_create_identifier("total");
+    ASTNode *node = ast_create_identifier("answer");
 
-    if (identifier == NULL) {
-        puts("FAIL: could not create identifier node");
+    if (node == NULL ||
+        node->type != AST_IDENTIFIER ||
+        strcmp(node->as.identifier, "answer") != 0) {
+        ast_free(node);
+        puts("FAIL: identifier node");
         return 0;
     }
 
-    int valid =
-        identifier->type == AST_IDENTIFIER &&
-        strcmp(identifier->as.identifier, "total") == 0;
-
-    ast_free(identifier);
-
-    if (!valid) {
-        puts("FAIL: identifier node is incorrect");
-        return 0;
-    }
-
+    ast_free(node);
     puts("PASS: identifier node");
     return 1;
 }
 
 static int test_binary_node(void) {
-    ASTNode *left = ast_create_identifier("x");
-    ASTNode *right = ast_create_number(10);
+    ASTNode *left = ast_create_number(2);
+    ASTNode *right = ast_create_number(3);
 
     if (left == NULL || right == NULL) {
         ast_free(left);
         ast_free(right);
-        puts("FAIL: could not create binary operands");
+        puts("FAIL: binary expression node");
         return 0;
     }
 
     ASTNode *binary = ast_create_binary('+', left, right);
 
-    if (binary == NULL) {
-        ast_free(left);
-        ast_free(right);
-        puts("FAIL: could not create binary node");
+    if (binary == NULL ||
+        binary->type != AST_BINARY ||
+        binary->as.binary.operator != '+' ||
+        binary->as.binary.left != left ||
+        binary->as.binary.right != right) {
+        ast_free(binary);
+        puts("FAIL: binary expression node");
         return 0;
     }
-
-    int valid =
-        binary->type == AST_BINARY &&
-        binary->as.binary.operator == '+' &&
-        binary->as.binary.left->type == AST_IDENTIFIER &&
-        strcmp(binary->as.binary.left->as.identifier, "x") == 0 &&
-        binary->as.binary.right->type == AST_NUMBER &&
-        binary->as.binary.right->as.number == 10;
 
     ast_free(binary);
-
-    if (!valid) {
-        puts("FAIL: binary expression node is incorrect");
-        return 0;
-    }
-
     puts("PASS: binary expression node");
     return 1;
 }
 
+static int test_variable_declaration_node(void) {
+    ASTNode *node = ast_create_variable_declaration("count");
+
+    if (node == NULL ||
+        node->type != AST_VARIABLE_DECLARATION ||
+        strcmp(node->as.variable_declaration.name, "count") != 0) {
+        ast_free(node);
+        puts("FAIL: variable declaration node");
+        return 0;
+    }
+
+    ast_free(node);
+    puts("PASS: variable declaration node");
+    return 1;
+}
+
 int main(void) {
-    int passed = 1;
+    int passed = 0;
 
-    passed &= test_existing_ast();
-    passed &= test_identifier_node();
-    passed &= test_binary_node();
+    passed += test_basic_nodes();
+    passed += test_identifier_node();
+    passed += test_binary_node();
+    passed += test_variable_declaration_node();
 
-    if (!passed) {
+    if (passed != 4) {
         puts("Some AST tests failed.");
         return 1;
     }

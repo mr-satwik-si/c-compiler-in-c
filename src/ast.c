@@ -112,6 +112,30 @@ ASTNode *ast_create_function(const char *name, ASTNode *body) {
     return node;
 }
 
+ASTNode *ast_create_variable_declaration(const char *name) {
+    if (name == NULL) {
+        return NULL;
+    }
+
+    ASTNode *node = ast_create_node(AST_VARIABLE_DECLARATION);
+
+    if (node == NULL) {
+        return NULL;
+    }
+
+    size_t length = strlen(name) + 1;
+    node->as.variable_declaration.name = malloc(length);
+
+    if (node->as.variable_declaration.name == NULL) {
+        free(node);
+        return NULL;
+    }
+
+    memcpy(node->as.variable_declaration.name, name, length);
+
+    return node;
+}
+
 void ast_free(ASTNode *node) {
     while (node != NULL) {
         ASTNode *next = node->next;
@@ -136,6 +160,10 @@ void ast_free(ASTNode *node) {
             case AST_BINARY:
                 ast_free(node->as.binary.left);
                 ast_free(node->as.binary.right);
+                break;
+
+            case AST_VARIABLE_DECLARATION:
+                free(node->as.variable_declaration.name);
                 break;
         }
 
